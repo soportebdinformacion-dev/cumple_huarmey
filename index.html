@@ -157,219 +157,291 @@
     </main>
 
     <script>
-        // 🚨 COPIA Y PEGA AQUÍ TU NUEVA URL DE APLICACIÓN WEB DE GOOGLE APPS SCRIPT:
-        const API_URL = "https://script.google.com/macros/s/AKfycbyADMvB5L89F4Y1_FlgciI77dawssG7xVggMVvjcBWNjeQJTsnkhVe2Bo5GVSA6dvn2JQ/exec";
+        // 🚨 REEMPLAZA ESTA URL CON TU ENLACE DE IMPLEMENTACIÓN DE APPS SCRIPT ACTUALIZADO
+const API_URL = "https://script.google.com/macros/s/AKfycbwvQGu0ip0DK0pAVQLo3Al6i1HT_jQxI09NOxu86s7B-kVyLkwVuXkxQE-P5ATG6Jlk2A/exec";
 
-        let workersProcessed = [];
-        let filteredWorkers = [];
-        let currentPage = 1;
-        const rowsPerPage = 10;
+let workersProcessed = [];
+let filteredWorkers = [];
+let currentPage = 1;
+const rowsPerPage = 10;
 
-        window.addEventListener('DOMContentLoaded', () => {
-            document.getElementById('label-current-month').innerText = `Celebraciones de ${["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"][new Date().getMonth()]}`;
-            fetchBirthdayData();
-            setupEventListeners();
+window.addEventListener('DOMContentLoaded', () => {
+    // Mantener la etiqueta del mes actual intacta
+    const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+    const currentMonthIndex = new Date().getMonth();
+    const labelMonth = document.getElementById('label-current-month');
+    if (labelMonth) labelMonth.innerText = `Celebraciones de ${meses[currentMonthIndex]}`;
+    
+    fetchBirthdayData();
+    setupEventListeners();
+});
+
+function fetchBirthdayData() {
+    fetch(API_URL)
+        .then(res => res.json())
+        .then(data => {
+            // Validar si el JSON viene como array directo o envuelto en un objeto rows
+            let rawRows = Array.isArray(data) ? data : (data.rows ? data.rows : Object.values(data));
+            
+            processWorkersData(rawRows);
+            initDashboard();
+            applyFilters();
+            
+            // Ocultar cargador y mostrar app
+            const loader = document.getElementById('loader');
+            const mainContent = document.getElementById('main-content');
+            if (loader) loader.classList.add('hidden');
+            if (mainContent) mainContent.remove('hidden');
+            
+            checkTomorrowBirthdays();
+        })
+        .catch(err => {
+            console.error("Error de conexión:", err);
+            Swal.fire({ 
+                icon: 'error', 
+                title: 'Error de Sincronización', 
+                text: 'No se pudo leer la información. Verifica que la URL de Apps Script sea la correcta y esté configurada como pública.' 
+            });
         });
+}
 
-        function fetchBirthdayData() {
-            fetch(API_URL)
-                .then(res => res.json())
-                .then(data => {
-                    processWorkersData(data);
-                    initDashboard();
-                    applyFilters();
-                    document.getElementById('loader').classList.add('hidden');
-                    document.getElementById('main-content').classList.remove('hidden');
-                    checkTomorrowBirthdays();
-                })
-                .catch(err => {
-                    console.error(err);
-                    Swal.fire({ icon: 'error', title: 'Error de Sincronización', text: 'Revisa si la URL de Apps Script está bien configurada y con acceso para "Cualquiera".' });
-                });
-        }
+function processWorkersData(rawList) {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const cleanToday = new Date(currentYear, today.getMonth(), today.getDate());
 
-        function processWorkersData(rawList) {
-            const today = new Date();
-            const currentYear = today.getFullYear();
-            const cleanToday = new Date(currentYear, today.getMonth(), today.getDate());
+    workersProcessed = rawList.map((w, idx) => {
+        // Mapear los campos reales de tu Google Sheets (bd_cumple)
+        const nombre = w.nombre || w.NOMBRE || "";
+        const fechaRaw = w.fecha || w.FECHA || "";
+        const area = w.area || w.AREA || "OPERACIONES";
+        const puesto = w.puesto || w.PUESTO || "OPERARIO";
+        const celular = w.celular || w.CELULAR || "";
+        const genero = w.sexo || w.SEXO || "M";
 
-            workersProcessed = rawList.map((w, idx) => {
-                if(!w.nombre || !w.fecha) return null;
-                
-                // Parseo de fecha YYYY-MM-DD segura
-                const parts = w.fecha.split("-");
-                const birthDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-                
-                if (isNaN(birthDate.getTime())) return null;
-
-                let edad = currentYear - birthDate.getFullYear();
-                const m = today.getMonth() - birthDate.getMonth();
-                if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) { edad--; }
-
-                let nextBirthday = new Date(currentYear, birthDate.getMonth(), birthDate.getDate());
-                if (nextBirthday < cleanToday) { nextBirthday.setFullYear(currentYear + 1); }
-
-                const diffTime = nextBirthday - cleanToday;
-                const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-                return {
-                    id: idx,
-                    nombre: w.nombre,
-                    fechaStr: birthDate.toLocaleDateString('es-ES', {day: '2-digit', month: '2-digit', year: 'numeric'}),
-                    mesNum: String(birthDate.getMonth() + 1).padStart(2, '0'),
-                    edad: edad,
-                    area: w.area,
-                    puesto: w.puesto,
-                    celular: w.celular.toString().replace(/\D/g, ''),
-                    daysRemaining: daysRemaining === 366 ? 0 : daysRemaining
-                };
-            }).filter(w => w !== null);
-        }
-
-        function initDashboard() {
-            const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
-            document.getElementById('metric-today').innerText = workersProcessed.filter(w => w.daysRemaining === 0).length;
-            document.getElementById('metric-tomorrow').innerText = workersProcessed.filter(w => w.daysRemaining === 1).length;
-            document.getElementById('metric-month').innerText = workersProcessed.filter(w => w.mesNum === currentMonth).length;
-            document.getElementById('metric-total').innerText = workersProcessed.length;
-        }
-
-        function checkTomorrowBirthdays() {
-            const listTomorrow = workersProcessed.filter(w => w.daysRemaining === 1);
-            if (listTomorrow.length > 0) {
-                playAlertSound();
-                const nombres = listTomorrow.map(w => `• ${w.nombre}`).join('<br>');
-                Swal.fire({
-                    title: '¡Cumpleaños Mañana!',
-                    html: `<div class="text-left text-sm text-slate-600"><p class="mb-2">Los siguientes colaboradores cumplen años mañana:</p><p class="bg-amber-50 p-3 rounded-lg border border-amber-200 font-mono text-amber-900">${nombres}</p></div>`,
-                    icon: 'warning',
-                    confirmButtonColor: '#0A2540'
-                });
+        if (!nombre || !fechaRaw) return null;
+        
+        // Parsear fecha de nacimiento de manera segura (Soporta YYYY-MM-DD y DD/MM/YYYY)
+        let birthDate = null;
+        if (fechaRaw.includes("-")) {
+            const parts = fechaRaw.split("T")[0].split("-");
+            birthDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        } else if (fechaRaw.includes("/")) {
+            const parts = fechaRaw.split("/");
+            if (parts[0].length === 4) {
+                birthDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+            } else {
+                birthDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
             }
+        } else {
+            birthDate = new Date(fechaRaw);
+        }
+        
+        if (isNaN(birthDate.getTime())) return null;
+
+        // Calcular Edad
+        let edad = currentYear - birthDate.getFullYear();
+        const m = today.getMonth() - birthDate.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) { 
+            edad--; 
         }
 
-        function playAlertSound() {
-            try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                let osc = ctx.createOscillator(); let gain = ctx.createGain();
-                osc.type = 'sine'; osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-                gain.gain.setValueAtTime(0.3, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-                osc.connect(gain); gain.connect(ctx.destination);
-                osc.start(); osc.stop(ctx.currentTime + 0.4);
-            } catch (e) { console.log("Audio bloqueado por navegador."); }
+        // Calcular Días Restantes para el cumpleaños
+        let nextBirthday = new Date(currentYear, birthDate.getMonth(), birthDate.getDate());
+        if (nextBirthday < cleanToday) { 
+            nextBirthday.setFullYear(currentYear + 1); 
         }
 
-        function setupEventListeners() {
-            document.getElementById('search-input').addEventListener('input', () => { currentPage = 1; applyFilters(); });
-            document.getElementById('month-filter').addEventListener('change', () => { currentPage = 1; applyFilters(); });
-            document.getElementById('btn-filter-today').addEventListener('click', () => { filteredWorkers = workersProcessed.filter(w => w.daysRemaining === 0); renderViews(); });
-            document.getElementById('btn-filter-tomorrow').addEventListener('click', () => { filteredWorkers = workersProcessed.filter(w => w.daysRemaining === 1); renderViews(); });
-            document.getElementById('btn-reset').addEventListener('click', () => { document.getElementById('search-input').value = ""; document.getElementById('month-filter').value = "ALL"; applyFilters(); });
-        }
+        const diffTime = nextBirthday - cleanToday;
+        const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-        function applyFilters() {
-            const search = document.getElementById('search-input').value.toLowerCase().trim();
-            const month = document.getElementById('month-filter').value;
+        return {
+            id: idx,
+            nombre: nombre.trim(),
+            fechaStr: birthDate.toLocaleDateString('es-ES', {day: '2-digit', month: '2-digit', year: 'numeric'}),
+            mesNum: String(birthDate.getMonth() + 1).padStart(2, '0'),
+            edad: edad,
+            area: area.trim(),
+            puesto: puesto.trim(),
+            celular: celular.toString().replace(/\D/g, ''),
+            genero: genero,
+            daysRemaining: daysRemaining === 366 ? 0 : daysRemaining
+        };
+    }).filter(w => w !== null);
+}
 
-            filteredWorkers = workersProcessed.filter(w => {
-                const matchSearch = w.nombre.toLowerCase().includes(search) || w.area.toLowerCase().includes(search) || w.puesto.toLowerCase().includes(search);
-                const matchMonth = month === "ALL" || w.mesNum === month;
-                return matchSearch && matchMonth;
-            });
+function initDashboard() {
+    const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
+    
+    const mt = document.getElementById('metric-today');
+    const mto = document.getElementById('metric-tomorrow');
+    const mm = document.getElementById('metric-month');
+    const mtotal = document.getElementById('metric-total');
 
-            filteredWorkers.sort((a, b) => a.daysRemaining - b.daysRemaining);
-            renderViews();
-        }
+    if (mt) mt.innerText = workersProcessed.filter(w => w.daysRemaining === 0).length;
+    if (mto) mto.innerText = workersProcessed.filter(w => w.daysRemaining === 1).length;
+    if (mm) mm.innerText = workersProcessed.filter(w => w.mesNum === currentMonth).length;
+    if (mtotal) mtotal.innerText = workersProcessed.length;
+}
 
-        function renderViews() {
-            renderCards();
-            renderTable();
-        }
+function checkTomorrowBirthdays() {
+    const listTomorrow = workersProcessed.filter(w => w.daysRemaining === 1);
+    if (listTomorrow.length > 0) {
+        playAlertSound();
+        const nombres = listTomorrow.map(w => `• ${w.nombre}`).join('<br>');
+        Swal.fire({
+            title: '¡Cumpleaños Mañana!',
+            html: `<div class="text-left text-sm text-slate-600"><p class="mb-2">Los siguientes colaboradores cumplen años mañana:</p><p class="bg-amber-50 p-3 rounded-lg border border-amber-200 font-mono text-amber-900">${nombres}</p></div>`,
+            icon: 'warning',
+            confirmButtonColor: '#0A2540'
+        });
+    }
+}
 
-        function renderCards() {
-            const container = document.getElementById('cards-container');
-            container.innerHTML = "";
-            document.getElementById('cards-count').innerText = `${filteredWorkers.length} registros`;
+function playAlertSound() {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        let osc = ctx.createOscillator(); let gain = ctx.createGain();
+        osc.type = 'sine'; osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(); osc.stop(ctx.currentTime + 0.4);
+    } catch (e) { console.log("Audio bloqueado o no soportado."); }
+}
 
-            const items = filteredWorkers.slice(0, 12);
-            if(items.length === 0) { document.getElementById('empty-state-cards').classList.remove('hidden'); return; }
-            document.getElementById('empty-state-cards').classList.add('hidden');
+function setupEventListeners() {
+    const si = document.getElementById('search-input');
+    const mf = document.getElementById('month-filter');
+    const bft = document.getElementById('btn-filter-today');
+    const bftm = document.getElementById('btn-filter-tomorrow');
+    const br = document.getElementById('btn-reset');
 
-            items.forEach(w => {
-                let badge = w.daysRemaining === 0 ? `<span class="absolute top-3 right-3 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-bounce">¡HOY!</span>` : (w.daysRemaining === 1 ? `<span class="absolute top-3 right-3 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">MAÑANA</span>` : `<span class="absolute top-3 right-3 bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full">Faltan ${w.daysRemaining} d</span>`);
-                
-                const div = document.createElement('div');
-                div.className = "relative bg-white rounded-2xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between";
-                div.innerHTML = `
-                    ${badge}
-                    <div class="mb-4">
-                        <h3 class="text-sm font-bold text-slate-800 truncate">${w.nombre}</h3>
-                        <p class="text-xs text-slate-500 truncate">${w.puesto}</p>
-                        <span class="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-semibold mt-1 inline-block">${w.area}</span>
-                    </div>
-                    <div class="bg-slate-50 p-2.5 rounded-xl text-xs space-y-1 mb-4">
-                        <div class="flex justify-between"><span class="text-slate-400">Cumpleaños:</span><span class="font-bold">${w.fechaStr.substring(0,5)}</span></div>
-                        <div class="flex justify-between"><span class="text-slate-400">Edad:</span><span>${w.edad} años</span></div>
-                    </div>
-                    <button onclick="sendWhatsApp(${w.id})" class="w-full bg-[#25D366] hover:bg-[#20ba56] text-white text-xs font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-1"><i class="fa-brands fa-whatsapp"></i> Enviar Invitación</button>
-                `;
-                container.appendChild(div);
-            });
-        }
+    if (si) si.addEventListener('input', () => { currentPage = 1; applyFilters(); });
+    if (mf) mf.addEventListener('change', () => { currentPage = 1; applyFilters(); });
+    
+    if (bft) bft.addEventListener('click', () => { filteredWorkers = workersProcessed.filter(w => w.daysRemaining === 0); renderViews(); });
+    if (bftm) bftm.addEventListener('click', () => { filteredWorkers = workersProcessed.filter(w => w.daysRemaining === 1); renderViews(); });
+    if (br) br.addEventListener('click', () => { if(si) si.value = ""; if(mf) mf.value = "ALL"; applyFilters(); });
+}
 
-        function renderTable() {
-            const tbody = document.getElementById('table-body');
-            tbody.innerHTML = "";
+function applyFilters() {
+    const si = document.getElementById('search-input');
+    const mf = document.getElementById('month-filter');
+    const search = si ? si.value.toLowerCase().trim() : "";
+    const month = mf ? mf.value : "ALL";
 
-            if(filteredWorkers.length === 0) { tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-400">Sin datos.</td></tr>`; return; }
+    filteredWorkers = workersProcessed.filter(w => {
+        const matchSearch = w.nombre.toLowerCase().includes(search) || w.area.toLowerCase().includes(search) || w.puesto.toLowerCase().includes(search);
+        const matchMonth = month === "ALL" || w.mesNum === month;
+        return matchSearch && matchMonth;
+    });
 
-            const start = (currentPage - 1) * rowsPerPage;
-            const end = Math.min(start + rowsPerPage, filteredWorkers.length);
-            const items = filteredWorkers.slice(start, end);
+    filteredWorkers.sort((a, b) => a.daysRemaining - b.daysRemaining);
+    renderViews();
+}
 
-            items.forEach(w => {
-                let label = w.daysRemaining === 0 ? '¡Hoy!' : (w.daysRemaining === 1 ? 'Mañana' : `En ${w.daysRemaining} d`);
-                tbody.innerHTML += `
-                    <tr class="hover:bg-slate-50">
-                        <td class="py-3 px-5 font-bold text-slate-800">${w.nombre}</td>
-                        <td class="py-3 px-5 font-mono text-slate-600">${w.fechaStr}</td>
-                        <td class="py-3 px-5">${w.edad} años</td>
-                        <td class="py-3 px-5 text-xs"><span class="bg-slate-100 px-2 py-0.5 rounded">${w.area}</span></td>
-                        <td class="py-3 px-5 text-slate-500 text-xs">${w.puesto}</td>
-                        <td class="py-3 px-5"><span class="text-[11px] font-semibold">${label}</span></td>
-                        <td class="py-3 px-5 text-center">
-                            <button onclick="sendWhatsApp(${w.id})" class="text-emerald-600 hover:text-emerald-800 p-1"><i class="fa-brands fa-whatsapp text-lg"></i></button>
-                        </td>
-                    </tr>
-                `;
-            });
+function renderViews() {
+    renderCards();
+    renderTable();
+}
 
-            document.getElementById('pagination-info').innerText = `Mostrando ${start + 1} a ${end} de ${filteredWorkers.length} registros`;
-            
-            const totalPages = Math.ceil(filteredWorkers.length / rowsPerPage);
-            let controls = "";
-            for(let i = 1; i <= totalPages; i++) {
-                controls += `<button onclick="currentPage=${i};renderTable();" class="px-2.5 py-1 rounded text-xs ${currentPage === i ? 'bg-blue-600 text-white' : 'bg-white border text-slate-600'}">${i}</button>`;
-            }
-            document.getElementById('pagination-controls').innerHTML = controls;
-        }
+function renderCards() {
+    const container = document.getElementById('cards-container');
+    if (!container) return;
+    container.innerHTML = "";
+    
+    const cc = document.getElementById('cards-count');
+    if (cc) cc.innerText = `${filteredWorkers.length} registros`;
 
-        function sendWhatsApp(id) {
-            const w = workersProcessed.find(item => item.id === id);
-            if(!w || !w.celular || w.celular.length < 9) {
-                Swal.fire({ icon: 'error', title: 'Celular inválido', text: 'Este colaborador no cuenta con número registrado.' });
-                return;
-            }
+    const esc = document.getElementById('empty-state-cards');
+    const items = filteredWorkers.slice(0, 24);
+    
+    if(items.length === 0) { if (esc) esc.classList.remove('hidden'); return; }
+    if (esc) esc.classList.add('hidden');
 
-            const primerNombre = w.nombre.split(',').pop().trim().split(' ')[0];
-            let mensaje = `¡Hola, *${primerNombre}*! 👋🍓\n\nDe parte de toda la familia de *Agrícola Huarmey | Fundo Frusan*, te enviamos un saludo muy especial por tu cumpleaños. 🎉🎂\n\nQueremos reconocer tu gran esfuerzo diario en el área de *${w.area}* como *${w.puesto}*. ¡Eres pieza fundamental del equipo! 🏆\n\nTe invitamos cordialmente a acercarte a Gestión Humana para entregarte un presente en conmemoración de tu día. 🎁🎈\n\nAtentamente,\n*Gestión de Talento y Bienestar Social*`;
-            
-            let fono = w.celular;
-            if(!fono.startsWith('51')) fono = '51' + fono;
+    items.forEach(w => {
+        let badge = w.daysRemaining === 0 ? `<span class="absolute top-3 right-3 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-bounce">¡HOY!</span>` : (w.daysRemaining === 1 ? `<span class="absolute top-3 right-3 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">MAÑANA</span>` : `<span class="absolute top-3 right-3 bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full">Faltan ${w.daysRemaining} d</span>`);
+        const isFemale = w.genero.toUpperCase() === 'F' || w.genero.toUpperCase() === 'FEMENINO';
+        const avatarUrl = isFemale ? 'https://api.dicebear.com/7.x/adventurer/svg?seed=Aneka&backgroundColor=b6e3f4' : 'https://api.dicebear.com/7.x/adventurer/svg?seed=Felix&backgroundColor=c0aede';
 
-            window.open(`https://api.whatsapp.com/send?phone=${fono}&text=${encodeURIComponent(mensaje)}`, '_blank');
-        }
+        const div = document.createElement('div');
+        div.className = "relative bg-white rounded-2xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between";
+        div.innerHTML = `
+            ${badge}
+            <div class="flex items-center gap-3 mb-4">
+                <img src="${avatarUrl}" alt="Avatar" class="w-12 h-12 rounded-full border bg-slate-50 object-cover flex-shrink-0">
+                <div class="min-w-0">
+                    <h3 class="text-sm font-bold text-slate-800 truncate">${w.nombre}</h3>
+                    <p class="text-xs text-slate-500 truncate">${w.puesto}</p>
+                    <span class="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-semibold mt-1 inline-block">${w.area}</span>
+                </div>
+            </div>
+            <div class="bg-slate-50 p-2.5 rounded-xl text-xs space-y-1 mb-4">
+                <div class="flex justify-between"><span class="text-slate-400">Cumpleaños:</span><span class="font-bold">${w.fechaStr.substring(0,5)}</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">Edad:</span><span>${w.edad} años</span></div>
+            </div>
+            <button onclick="sendWhatsApp(${w.id})" class="w-full bg-[#25D366] hover:bg-[#20ba56] text-white text-xs font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-1"><i class="fa-brands fa-whatsapp"></i> Enviar Invitación</button>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function renderTable() {
+    const tbody = document.getElementById('table-body');
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    if(filteredWorkers.length === 0) { tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-400">Sin datos.</td></tr>`; return; }
+
+    const start = (currentPage - 1) * rowsPerPage;
+    const end = Math.min(start + rowsPerPage, filteredWorkers.length);
+    const items = filteredWorkers.slice(start, end);
+
+    items.forEach(w => {
+        let label = w.daysRemaining === 0 ? '¡Hoy!' : (w.daysRemaining === 1 ? 'Mañana' : `En ${w.daysRemaining} d`);
+        tbody.innerHTML += `
+            <tr class="hover:bg-slate-50">
+                <td class="py-3 px-5 font-bold text-slate-800">${w.nombre}</td>
+                <td class="py-3 px-5 font-mono text-slate-600">${w.fechaStr}</td>
+                <td class="py-3 px-5">${w.edad} años</td>
+                <td class="py-3 px-5 text-xs"><span class="bg-slate-100 px-2 py-0.5 rounded">${w.area}</span></td>
+                <td class="py-3 px-5 text-slate-500 text-xs">${w.puesto}</td>
+                <td class="py-3 px-5"><span class="text-[11px] font-semibold">${label}</span></td>
+                <td class="py-3 px-5 text-center">
+                    <button onclick="sendWhatsApp(${w.id})" class="text-emerald-600 hover:text-emerald-800 p-1"><i class="fa-brands fa-whatsapp text-lg"></i></button>
+                </td>
+            </tr>
+        `;
+    });
+
+    const pi = document.getElementById('pagination-info');
+    if (pi) pi.innerText = `Mostrando ${start + 1} a ${end} de ${filteredWorkers.length} registros`;
+    
+    const totalPages = Math.ceil(filteredWorkers.length / rowsPerPage);
+    let controls = "";
+    for(let i = 1; i <= totalPages; i++) {
+        controls += `<button onclick="currentPage=${i};renderTable();" class="px-2.5 py-1 rounded text-xs ${currentPage === i ? 'bg-blue-600 text-white' : 'bg-white border text-slate-600'}">${i}</button>`;
+    }
+    const pc = document.getElementById('pagination-controls');
+    if (pc) pc.innerHTML = controls;
+}
+
+function sendWhatsApp(id) {
+    const w = workersProcessed.find(item => item.id === id);
+    if(!w || !w.celular || w.celular.length < 9) {
+        Swal.fire({ icon: 'error', title: 'Celular inválido', text: 'Este colaborador no cuenta con un número registrado válido.' });
+        return;
+    }
+
+    const primerNombre = w.nombre.split(',').pop().trim().split(' ')[0];
+    let mensaje = `¡Hola, *${primerNombre}*! 👋🍓\n\nDe parte de toda la familia de *Agrícola Huarmey | Fundo Frusan*, te enviamos un saludo muy especial por tu cumpleaños. 🎉🎂\n\nQueremos reconocer tu gran esfuerzo diario en el área de *${w.area}* como *${w.puesto}*. ¡Eres pieza fundamental del equipo! 🏆\n\nTe invitamos cordialmente a acercarte a Gestión Humana para entregarte un presente en conmemoración de tu día. 🎁🎈\n\nAtentamente,\n*Gestión de Talento y Bienestar Social*`;
+    
+    let fono = w.celular;
+    if(!fono.startsWith('51')) fono = '51' + fono;
+
+    window.open(`https://api.whatsapp.com/send?phone=${fono}&text=${encodeURIComponent(mensaje)}`, '_blank');
+}
     </script>
 </body>
 </html>
