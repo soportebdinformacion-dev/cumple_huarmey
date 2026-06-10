@@ -211,65 +211,49 @@ function processWorkersData(rawList) {
     const cleanToday = new Date(currentYear, today.getMonth(), today.getDate());
 
     workersProcessed = rawList.map((w, idx) => {
-        // Mapear los campos reales de tu Google Sheets (bd_cumple)
-        const nombre = w.nombre || w.NOMBRE || "";
-        const fechaRaw = w.fecha || w.FECHA || "";
-        const area = w.area || w.AREA || "OPERACIONES";
-        const puesto = w.puesto || w.PUESTO || "OPERARIO";
-        const celular = w.celular || w.CELULAR || "";
-        const genero = w.sexo || w.SEXO || "M";
+        // 1. Extraer los datos reales de tu bd_cumple
+        const nombreTrabajador = w.nombre || "";
+        const fechaNacimiento = w.fecha || "";
+        const areaTrabajo = w.area || "OPERACIONES";
+        const puestoTrabajo = w.puesto || "OPERARIO";
+        const telefono = w.celular || "";
 
-        if (!nombre || !fechaRaw) return null;
-        
-        // Parsear fecha de nacimiento de manera segura (Soporta YYYY-MM-DD y DD/MM/YYYY)
-        let birthDate = null;
-        if (fechaRaw.includes("-")) {
-            const parts = fechaRaw.split("T")[0].split("-");
-            birthDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-        } else if (fechaRaw.includes("/")) {
-            const parts = fechaRaw.split("/");
-            if (parts[0].length === 4) {
-                birthDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-            } else {
-                birthDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-            }
-        } else {
-            birthDate = new Date(fechaRaw);
-        }
+        if (!nombreTrabajador || !fechaNacimiento) return null;
+
+        // 2. Parsear la fecha de forma segura (soporta YYYY-MM-DD)
+        const parts = fechaNacimiento.split("T")[0].split("-");
+        const birthDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
         
         if (isNaN(birthDate.getTime())) return null;
 
-        // Calcular Edad
+        // 3. Calcular la edad del colaborador
         let edad = currentYear - birthDate.getFullYear();
         const m = today.getMonth() - birthDate.getMonth();
-        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) { 
-            edad--; 
+        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+            edad--;
         }
 
-        // Calcular Días Restantes para el cumpleaños
+        // 4. Calcular días restantes para el cumpleaños
         let nextBirthday = new Date(currentYear, birthDate.getMonth(), birthDate.getDate());
-        if (nextBirthday < cleanToday) { 
-            nextBirthday.setFullYear(currentYear + 1); 
+        if (nextBirthday < cleanToday) {
+            nextBirthday.setFullYear(currentYear + 1);
         }
-
         const diffTime = nextBirthday - cleanToday;
         const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
+        // 5. Retornar las variables mapeadas EXACTAMENTE a como las lee tu interfaz visual
         return {
             id: idx,
-            nombre: nombre.trim(),
-            fechaStr: birthDate.toLocaleDateString('es-ES', {day: '2-digit', month: '2-digit', year: 'numeric'}),
-            mesNum: String(birthDate.getMonth() + 1).padStart(2, '0'),
-            edad: edad,
-            area: area.trim(),
-            puesto: puesto.trim(),
-            celular: celular.toString().replace(/\D/g, ''),
-            genero: genero,
-            daysRemaining: daysRemaining === 366 ? 0 : daysRemaining
+            dni: telefono, // Usamos el celular o identificador provisional
+            nombre: nombreTrabajador.trim(),
+            condicion: areaTrabajo.trim(), // Se mapea al campo visual de Ruta/Área
+            dias: edad, // Tu tabla lee 'dias', aquí le pasamos la edad calculada
+            rango_dias: birthDate.toLocaleDateString('es-ES', {day: '2-digit', month: '2-digit'}), // Formato corto DD/MM
+            total_kg: daysRemaining === 366 ? 0 : daysRemaining, // Reutiliza el campo para los días restantes
+            clasificacion: puestoTrabajo.trim() // Se mapea al campo visual de puesto/clasificación
         };
     }).filter(w => w !== null);
 }
-
 function initDashboard() {
     const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
     
